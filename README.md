@@ -4,7 +4,7 @@ PoP (Proof of Probing) is a altanative of PoUW (Proof of Useful Work) mechanism.
 ## simulation
 here is the requirements, setup, and results of the simulation.
 
-## implimentation
+## implementation
 here is the requirements, setup, and results of the implementation.
 
 
