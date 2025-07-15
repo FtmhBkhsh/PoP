@@ -1,0 +1,64 @@
+# Vagrantfile
+VAGRANTFILE_API_VERSION = "2"
+
+NODES = {
+  "db"       => "192.168.56.10",
+  "mapper1"  => "192.168.56.11",
+  "mapper2"  => "192.168.56.12",
+  "mapper3"  => "192.168.56.13",
+  "mapper4"  => "192.168.56.14",
+  "mapper5"  => "192.168.56.15",
+  "reducer1" => "192.168.56.21",
+  "reducer2" => "192.168.56.22"
+}
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  NODES.each do |name, ip|
+    config.vm.define name do |node|
+      node.vm.box = "ubuntu/bionic64"
+      node.vm.hostname = name
+      node.vm.network "private_network", ip: ip
+      if "map" in name:
+        node.vm.provision "file", source: "./map.py", destination: "/home/vagrant/map.py"
+      end
+      if "reduve" in name:
+        node.vm.provision "file", source: "./reduce.py", destination: "/home/vagrant/reduce.py"
+      end
+      node.vm.provider "virtualbox" do |vb|
+        vb.memory = 512
+        vb.cpus = 1
+      end
+
+
+      node.vm.provision "shell", inline: <<-SHELL
+        apt-get update -y
+        apt-get install -y python3 python3-pip
+
+        # Install psycopg2 for Python DB access
+        pip3 install psycopg2-binary
+
+        # DB-specific setup
+        if [ "#{name}" = "db" ]; then
+          apt-get install -y postgresql postgresql-contrib
+          sudo -u postgres psql -c "CREATE USER vagrant WITH PASSWORD 'vagrant';"
+          sudo -u postgres createdb -O vagrant mapperdb
+
+          echo "listen_addresses = '*'" >> /etc/postgresql/10/main/postgresql.conf
+          echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/10/main/pg_hba.conf
+          systemctl restart postgresql
+
+          # Add test trigger words
+          sudo -u postgres psql -d mapperdb -c "
+            CREATE TABLE IF NOT EXISTS config (
+              id SERIAL PRIMARY KEY,
+              trigger_word TEXT,
+              used BOOLEAN DEFAULT FALSE
+            );
+            INSERT INTO config (trigger_word) VALUES
+              ('mine'), ('gold'), ('spark'), ('dig'), ('maple'), ('pow'), ('reduce');
+          "
+        fi
+      SHELL
+    end
+  end
+end
