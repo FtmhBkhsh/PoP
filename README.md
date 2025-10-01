@@ -1,10 +1,10 @@
 # PoP
 PoP (Proof of Probing) is a altanative of PoUW (Proof of Useful Work) mechanism. its anew blockchain consensus algorithm that do data processing as useful work.
 
-##simulation
+## simulation
 here is the requirements, setup, and results of the simulation.
 
-##implimentation
+## implementation
 here is the requirements, setup, and results of the implementation.
 
 
