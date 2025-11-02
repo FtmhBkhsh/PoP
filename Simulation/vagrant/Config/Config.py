@@ -9,7 +9,7 @@ class Config:
                 "challenges_count": 1,
                 "challenges_count": 1,
                 "challanges_file_path": "challanges.csv",
-                "host": "0.0.0.0",
+                "challange_producer_ip": "0.0.0.0",
                 "port": 5000
             },
             "server": {

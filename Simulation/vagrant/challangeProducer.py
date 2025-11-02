@@ -81,7 +81,7 @@ if __name__ == "__main__":
     challenges_count = cfg.get("challange_producer", "challenges_count")
     print(challenges_count)
     challanges_file_path = cfg.get("challange_producer", "challanges_file_paths")
-    host = cfg.get("challange_producer", "host")
+    challange_producer_ip = cfg.get("challange_producer", "challange_producer_ip")
     port = cfg.get("challange_producer", "port")
 
     generate_challange(challenges_count)
@@ -97,4 +97,4 @@ if __name__ == "__main__":
             return jsonify({"error": str(e)}), 400
 
     if __name__ == "__main__":
-        app.run(host="0.0.0.0", port=5000)
+        app.run(host=challange_producer_ip, port=5000)
