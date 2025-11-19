@@ -5,11 +5,11 @@ class Config:
     def __init__(self, config_file="Config\config.json"):
         self.config_file = config_file
         self.default_config = {
-            "challange_producer": {
+            "challenge_producer": {
                 "challenges_count": 1,
                 "challenges_count": 1,
-                "challanges_file_path": "challanges.csv",
-                "challange_producer_ip": "0.0.0.0",
+                "challenges_file_path": "challenges.csv",
+                "challenge_producer_ip": "127.0.0.1",
                 "port": 5000
             },
             "server": {
