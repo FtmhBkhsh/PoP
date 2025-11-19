@@ -1,416 +1,380 @@
-import hashlib
-import requests
-from pybulletproofs import zkrp_prove, zkrp_verify
-import time
-import json
-import threading
-from queue import Queue
-import psycopg2
-from Config import Config
-import pandas as pd
-from Commitment import Commitment
-
-from py_ecc import bls12_381 as b381
-from py_ecc.bls.hash_to_curve import hash_to_G1
-from py_ecc.optimized_bls12_381 import normalize
-import hashlib
-import secrets
 import ast
+import hashlib
 import json
-from flask import Flask, jsonify, request  # Make sure request is imported
+import logging
+import threading
+import time
+from queue import Queue
+from typing import Any, Dict, List, Optional, Tuple
+
 import pandas as pd
-from Commitment import Commitment
-from Config import Config
+import requests
+from flask import Flask, jsonify, request
+from py_ecc import bls12_381 as b381
 from py_ecc.optimized_bls12_381 import FQ
 
+from Commitment import Commitment
+from Config import Config
 
-curve_order = b381.curve_order
+# --- Configuration / Constants -------------------------------------------------
+logger = logging.getLogger("mapper_node")
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
-REDUCER_ENDPOINTS = [
-    "http://127.0.0.1:5000"
-    # "http://192.168.56.22:5000"
-]
+CURVE_ORDER = b381.curve_order
 
-MAPPER_ENDPOINTS = [
-    # "http://192.168.56.11:2000",
-    # "http://192.168.56.12:2000",
-    # "http://192.168.56.13:2000",
-    # "http://192.168.56.14:2000"
-    "http://127.0.0.1:3000"
-    # ,
-    # "http://127.0.0.1:2001",
-    # "http://127.0.0.1:2002",
-    # "http://127.0.0.1:2003"
-]
+# Default endpoints (override via config if required)
+REDUCER_ENDPOINTS = ["http://127.0.0.1:5000"]
+MAPPER_ENDPOINTS = ["http://127.0.0.1:3000"]
 
-# ==== Blockchain Classes ====
-def make_json_safe(obj):
-    if isinstance(obj, bytes):
+# --- Utilities ----------------------------------------------------------------
+
+def make_json_safe(obj: Any) -> Any:
+    """Recursively convert bytes to hex strings so objects are JSON serializable."""
+    if isinstance(obj, (bytes, bytearray)):
         return obj.hex()
-
     if isinstance(obj, dict):
         return {k: make_json_safe(v) for k, v in obj.items()}
-
     if isinstance(obj, list):
         return [make_json_safe(x) for x in obj]
-
     if isinstance(obj, tuple):
         return tuple(make_json_safe(x) for x in obj)
-
     return obj
 
+
+# --- Blockchain Models --------------------------------------------------------
 class Block:
-    def __init__(self, index, data,prev_hash, proof=None, context=None, currentchallenge=0, commitment=0 ):
+    """Simple block container with JSON-safe serialization and hashing."""
+
+    def __init__(
+        self,
+        index: int,
+        data: Any,
+        prev_hash: str,
+        proof: Optional[Dict] = None,
+        context: Optional[Any] = None,
+        challenge: Optional[Dict] = None,
+        commitment: Optional[Any] = None,
+    ) -> None:
         self.index = index
         self.timestamp = time.time()
         self.data = data
-        self.challenge = currentchallenge
+        self.challenge = challenge
         self.proof = proof
         self.commitment = commitment
         self.prev_hash = prev_hash
         self.context = context
- 
-    # def create_block(self):
-    #     return self.to_dict(self)
 
-    def bytes_to_hex(obj):
-            """Recursively convert bytes objects to hex strings"""
-            if isinstance(obj, bytes):
-                return obj.hex()
-            elif isinstance(obj, dict):
-                return {k: Block.bytes_to_hex(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [Block.bytes_to_hex(item) for item in obj]
-            else:
-                return obj
+    @staticmethod
+    def bytes_to_hex(obj: Any) -> Any:
+        """Recursively convert bytes objects to hex strings."""
+        return make_json_safe(obj)
 
-
-    def to_dict(self):
-        block_dict= {
+    def to_dict(self) -> Dict[str, Any]:
+        block_dict: Dict[str, Any] = {
             "index": self.index,
             "timestamp": self.timestamp,
             "data": self.data,
             "challenge": self.challenge,
             "prev_hash": self.prev_hash,
-            "commitment" : self.commitment,
-            "proof": self.proof,  # <-- FIX: add this line
-            "context": self.challenge.get("context", None)
-            # "nonce": self.proof
+            "commitment": self.commitment,
+            "proof": self.proof,
+            "context": self.context,
         }
 
-        # Convert bytes to hex strings before JSON serialization
-        block_dict = Block.bytes_to_hex(block_dict)  # recursive conversion
-        block_hash = hashlib.sha256(json.dumps(block_dict, sort_keys=True).encode()).hexdigest()
-
+        block_dict = Block.bytes_to_hex(block_dict)
+        # Stable JSON for hashing
+        serialized = json.dumps(block_dict, sort_keys=True, ensure_ascii=False)
+        block_hash = hashlib.sha256(serialized.encode()).hexdigest()
         block_dict["hash"] = block_hash
         return block_dict
-         
+
+
 class Blockchain:
-    def __init__(self):
-        self.chain = []
+    """In-memory blockchain (append-only)."""
+
+    def __init__(self) -> None:
+        self.chain: List[Block] = []
         self.create_genesis()
 
-    def create_genesis(self):
-        self.chain.append(Block(0, "Genesis", "genesis", "0"))
+    def create_genesis(self) -> None:
+        genesis = Block(index=0, data="Genesis", prev_hash="0", proof=None)
+        self.chain.append(genesis)
 
-    def add_block_to_chain(self, block):
+    def add_block_to_chain(self, block: Block) -> None:
         self.chain.append(block)
-        print(f"[CHAIN] Added block #{block.index} with challange '{block.challenge}'") 
+        logger.info("Added block #%s hash=%s", block.index, getattr(block.to_dict(), "hash", "-"))
 
-    # def verify_block(self):
-    #     return BulletProof.verify(self.challenge, self.proof)     
+    def last_hash(self) -> str:
+        # Hash of the last block dict
+        if not self.chain:
+            return "0"
+        return self.chain[-1].to_dict()["hash"]
 
-    def last_hash(self):
-        return hashlib.sha512(str(self.chain[-1]).encode()).digest()
 
-# ==== Mapper Node ====
+# --- Mapper Node --------------------------------------------------------------
 class MapperNode:
-    ip="0.0.0.0"
-    def __init__(self):
+    """Mapper node that probes data and receives external blocks.
+
+    The node is initialized with the address of the challenge producer, and an
+    optional mapper IP (used in commitments/context).
+    """
+
+    def __init__(self, challenge_producer_ip: str, mapper_ip: str = "127.0.0.1") -> None:
         self.blockchain = Blockchain()
         self.trigger_lock = threading.Lock()
-        self.current_challenge = self.get_new_challenge()
-        self.block_queue = Queue()
-        print(f"[INIT] Node started with current_challenge: {self.current_challenge}")
+        self.challenge_producer_ip = challenge_producer_ip
+        self.mapper_ip = mapper_ip
+        self.current_challenge: Dict[str, Any] = self.get_new_challenge()
+        self.block_queue: Queue = Queue()
+        logger.info("Node started with initial challenge: %s", self.current_challenge)
 
-    def get_new_challenge(self):
-        new_challange=requests.get(f"http://{challange_producer_ip}:5000/challange", timeout=2)
-        # print(f"challenge is: {new_challange.json()['random_challange']}")
-        return new_challange.json()
-    
-    def update_challenge(self):
+    # ---- Challenge handling -------------------------------------------------
+    def get_new_challenge(self) -> Dict[str, Any]:
+        url = f"http://{self.challenge_producer_ip}:5000/challenge"
+        try:
+            resp = requests.get(url, timeout=3)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:  # pragma: no cover - network error handling
+            logger.error("Failed to fetch new challenge from %s — %s", url, exc)
+            # Return a safe default challenge structure to avoid runtime crashes
+            return {"hash": "", "G": None, "H": None}
+
+    def update_challenge(self) -> None:
         with self.trigger_lock:
             self.current_challenge = self.get_new_challenge()
-            print(f"[TRIGGER] Updated challenge to: {self.current_challenge}")
-        
-    def probe_line(self, line):
-        words = line.strip().split()
-        word_counts = [(word, 1) for word in words]
-        print(word_counts)
-        word_counts_hash=hashlib.sha256(str(word_counts).encode()).hexdigest()
-        print(self.current_challenge["hash"])
-        print(word_counts_hash)
-        print(self.current_challenge["hash"]==word_counts_hash)
-        if self.current_challenge["hash"]==word_counts_hash:
+            logger.info("Updated challenge to: %s", self.current_challenge)
 
-            # self.send_results(word_counts)
-            # challenge = self.get_challenge()
-            print(("**********************************"))
-            print(f"[MINE] Mining for line with challenge '{self.current_challenge}'")
-            # commitment, proof= self.make_proof(word_counts)
-            commitment, proof= self.make_proof(word_counts)
-            new_block = Block(
+    # ---- Probing / Mining --------------------------------------------------
+    def probe_line(self, line: str) -> Tuple[List[Tuple[str, int]], Optional[Block]]:
+        words = line.strip().split()
+        word_counts = [(w, 1) for w in words]
+        logger.debug("Word counts: %s", word_counts)
+
+        # Compute a hash for candidate matching
+        wc_hash = hashlib.sha256(str(word_counts).encode()).hexdigest()
+        trigger_hash = self.current_challenge.get("hash", "")
+        logger.debug("Comparing hashes: trigger=%s candidate=%s", trigger_hash, wc_hash)
+
+        if trigger_hash and trigger_hash == wc_hash:
+            logger.info("Found matching line for current challenge — creating commitment/proof")
+            commitment, proof = self.make_proof(word_counts)
+            block = Block(
                 index=len(self.blockchain.chain),
                 data=line,
-                currentchallenge=self.current_challenge,
+                challenge=self.current_challenge,
                 commitment=commitment,
                 proof=proof,
-                prev_hash=self.blockchain.last_hash()
+                context=mapper_ip,
+                prev_hash=self.blockchain.last_hash(),
             )
-            # block=new_block.create_block()
-            # Blockchain.add_block_to_chain(block)
-            return word_counts, new_block
+            return word_counts, block
+
         return word_counts, None
 
-    def make_proof(self,word_counts):
-        # commitment, proof = zkrp_prove(self.ip, word_counts)
-        first_word, last_word = word_counts[0][0],word_counts[-1][0]
-        G = ast.literal_eval(self.current_challenge["G"])
-        H =ast.literal_eval(self.current_challenge["H"])
-        MyIp="192.168.56.11"
-        r2 = Commitment.ipv4_to_int(MyIp)
+    def make_proof(self, word_counts: List[Tuple[str, int]]) -> Tuple[Any, Any]:
+        """Create a Pedersen commitment and opening proof for the count.
+
+        This function expects the challenge to contain 'G' and 'H' as string
+        representations of points; it will parse them, compute a commitment and
+        generate a proof using the Commitment helpers.
+        """
+        if not self.current_challenge:
+            raise RuntimeError("No current challenge available for making proof")
+
+        # Example: the message to commit is the length of the list
         m = len(word_counts)
+
+        # Convert G/H from their string representations into Python tuples if needed
+        G = ast.literal_eval(self.current_challenge["G"]) if self.current_challenge.get("G") else None
+        H = ast.literal_eval(self.current_challenge["H"]) if self.current_challenge.get("H") else None
+
+        # r2: use a deterministic pseudo-random secret derived from mapper IP (example)
+        r2 = Commitment.ipv4_to_int(self.mapper_ip)
+
         commitment = Commitment.pedersen_commit(m, r2, G, H)
-        proof = Commitment.prove_pedersen_opening(commitment, m, r2, G, H, context=MyIp.encode())
+        proof = Commitment.prove_pedersen_opening(commitment, m, r2, G, H, context=self.mapper_ip.encode())
         return commitment, proof
 
-
-    def send_results(self, word_counts):
-        for word, count in word_counts:
+    # ---- Networking / Sending ----------------------------------------------
+    def send_results_to_reducers(self, word_counts: List[Tuple[str, int]]) -> None:
+        for key, value in word_counts:
             for endpoint in REDUCER_ENDPOINTS:
                 try:
-                    print("try to send")
-                    requests.post(f"{endpoint}/reduce", json={"key": word, "value": count , 'source':"127.0.0.1:3000"}, timeout=2)
+                    requests.post(f"{endpoint}/reduce", json={"key": key, "value": value, "source": self.mapper_ip}, timeout=2)
                     break
-                except Exception as e:
-                        print(f"[ERROR] Failed to send word count to {endpoint} — {e}")
+                except Exception:
+                    logger.exception("Failed to send word count to %s — continuing to next endpoint", endpoint)
 
-    def send_to_others(self, block_dict):
-        time.sleep(10)
-        serializable_data = make_json_safe(block_dict)
-
+    def send_block_to_peer(self, block_dict: Dict[str, Any], endpoint: str = "http://127.0.0.1:3000/addBlock") -> Optional[requests.Response]:
+        serializable = make_json_safe(block_dict)
         try:
-            response = requests.post(
-                "http://127.0.0.1:3000/addBlock",
-                json=serializable_data,
-                headers={'Content-Type': 'application/json'}
-            )
-            response.raise_for_status()
-            return response
+            resp = requests.post(endpoint, json=serializable, timeout=5)
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException:
+            logger.exception("Failed to send block to %s", endpoint)
+            return None
 
-        except requests.exceptions.RequestException as e:
-            print(f"[ERROR] Failed to send block — {e}")
-
-
-    def parse_point(self, value):
-        """
-        Accepts any of these formats and normalizes to (FQ(x), FQ(y)):
-        - "(x, y)"  (string)
-        - (x, y)     (tuple)
-        - [x, y]     (list)
-        """
-        if isinstance(value, tuple) or isinstance(value, list):
+    # ---- Parsing and verification helpers ---------------------------------
+    def parse_point(self, value: Any) -> Tuple[int, int]:
+        """Normalize a point to integer coordinates (x, y)."""
+        if isinstance(value, (tuple, list)):
             x, y = value
-            return (FQ(int(x)), FQ(int(y)))
+            # Convert FQ to int if needed
+            x_int = int(x.n) if hasattr(x, "n") else int(x)
+            y_int = int(y.n) if hasattr(y, "n") else int(y)
+            return x_int, y_int
 
         if isinstance(value, str):
-            s = value.strip().replace("(", "").replace(")", "")
+            s = value.strip().lstrip("(").rstrip(")")
             x_str, y_str = s.split(",")
-            return (FQ(int(x_str)), FQ(int(y_str)))
+            return int(x_str), int(y_str)
 
         raise TypeError(f"Unsupported point format: {value}")
 
-
-    def parse_proof(self, proof):
-        """
-        Normalizes your proof dict. Accepts:
-        - proof['T'] as (x, y)
-        - proof['h'] as bytes or hex string
-        """
+    def parse_proof(self, proof: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "c": int(proof["c"]),
             "u": int(proof["u"]),
             "v": int(proof["v"]),
-            "T": parse_point(proof["T"]),
-            "h": (
-                proof["h"]
-                if isinstance(proof["h"], (bytes, bytearray))
-                else bytes.fromhex(proof["h"])
-            )
+            "T": self.parse_point(proof["T"]),
+            "h": proof["h"] if isinstance(proof.get("h"), (bytes, bytearray)) else bytes.fromhex(proof["h"]),
         }
-
-
-    def parse_context(ctx):
-        """Accepts bytes or string."""
+    def parse_context(self, ctx):
+        if ctx is None:
+            return b""
         if isinstance(ctx, bytes):
-            return ctx
+            return ctx  # already raw bytes
         if isinstance(ctx, str):
-            return ctx.encode()
-        raise TypeError("Invalid context type for block")
+            # hex string → raw bytes
+            try:
+                return bytes.fromhex(ctx)
+            except ValueError:
+                # fallback if not hex-encoded
+                return ctx.encode()
+        raise TypeError(f"Invalid context type for block: {type(ctx)}")
 
+    # ---- Receiving blocks --------------------------------------------------
+    def receive_block(self, block_data: Dict[str, Any]) -> None:
+        logger.info("Received external block data (index=%s)", block_data.get("index"))
 
-    def receive_block(self, block_data):
-        """Called by listener thread"""
-        print("receive_block")
-        trigger_in_block = block_data['challenge']['hash']
-        print(trigger_in_block)
-        print(self.current_challenge['hash'])
-        if trigger_in_block == self.current_challenge['hash']:
-            print("trigger_in_block")
-            print(f"[RECV] Received block with MY trigger '{trigger_in_block}' — abandoning mine.")
+        trigger_in_block = block_data.get("challenge", {}).get("hash")
+
+        # Build Block object from incoming data
+        block = Block(
+            index=block_data.get("index", len(self.blockchain.chain)),
+            data=block_data.get("data"),
+            challenge=block_data.get("challenge"),
+            commitment=block_data.get("commitment"),
+            prev_hash=block_data.get("prev_hash", ""),
+            proof=block_data.get("proof"),
+            context=block_data.get("context"),
+        )
+
+        # Verify proof if possible
+        try:
+            G = tuple(int(x.n) if hasattr(x, "n") else int(x) for x in self.parse_point(block_data["challenge"]["G"]))
+            H = tuple(int(x.n) if hasattr(x, "n") else int(x) for x in self.parse_point(block_data["challenge"]["H"]))
+            C = tuple(int(x.n) if hasattr(x, "n") else int(x) for x in self.parse_point(block_data["commitment"]))
+            # Ensure context is bytes
+            context = self.parse_context(block_data.get("context"))
+            # Parse proof
+            proof = self.parse_proof(block_data["proof"])
+            logger.info("Sanity check for verification")
+            logger.info("Expected C: %s", block.commitment)
+            logger.info("Received C: %s", C)
+            logger.info("Expected context: %s", node.mapper_ip.encode())
+            logger.info("Received context: %s", context)
+            # Use Commitment.verify_pedersen_proof when we have everything needed
+            if C is not None and proof is not None and G is not None and H is not None:
+                logger.info("Verifying block: C=%s, proof=%s, G=%s, H=%s, context=%s",
+            C, proof, G, H, context)
+                ok = Commitment.verify_pedersen_proof(C, proof, G, H, context=context)
+                if ok:
+                    logger.info("External block verified — appending to chain")
+                    self.blockchain.add_block_to_chain(block)
+                else:
+                    logger.warning("External block verification failed — dropping block")
+            else:
+                logger.warning("Insufficient data to verify external block — dropping")
+
+        except Exception:
+            logger.exception("Error while verifying incoming block")
+
+        if trigger_in_block and trigger_in_block == self.current_challenge.get("hash"):
+            logger.info("Received a block matching our trigger — updating challenge and abandoning mine.")
             self.update_challenge()
 
-        block = Block(
-            index=block_data["index"],
-            data=block_data["data"],
-            currentchallenge=block_data["challenge"],
-            commitment=block_data.get("commitment", 0),  # commitment might be included
-            prev_hash=block_data["prev_hash"]
-        )
-        # Verify proof
-        print("Verify proof")
-        # G = block_data['challenge']['G']
-        # H = block_data['challenge']['H']
-        # C = block_data['commitment']
-        G = self.parse_point(block_data["challenge"]["G"])
-        H = self.parse_point(block_data["challenge"]["H"])
-        C = self.parse_point(block_data["commitment"])
-        proof = self.parse_proof(block_data['proof'])
-        context =self.parse_context(block_data['context'])
-        # .encode()
-        print(context)
-        print(type(C), type(proof), type(G),type(H))
-        print(C, proof, G,H)
-        print(Commitment.verify_pedersen_proof(C, proof, G, H ,context=context))
-        if  Commitment.verify_pedersen_proof(C, proof, G, H ,context=context):
-            print("Verified!")
-            self.blockchain.add_block_to_chain(block)
-        else:
-            print("[VERIFY] Proof verification failed, dropping block")
-            self.drop()
-
-    def drop(self):
+    def drop_queue(self) -> None:
         try:
             while True:
                 self.block_queue.get_nowait()
-        except:
+        except Exception:
+            # empty queue
             pass
 
-# ==== Threads ====
-def probing_thread(node: MapperNode):
-    # Read Excel file
-    df = pd.read_csv("input_part_1_of_4.csv")
-    print(df)
-    for data in df["answer"]:
+
+# --- Background threads ------------------------------------------------------
+
+def probing_thread(node: MapperNode, csv_path: str = "input_part_1_of_4.csv") -> None:
+    """Read lines from CSV and attempt to probe/mine blocks."""
+    df = pd.read_csv(csv_path)
+    for data in df.get("answer", []):
         word_counts, block = node.probe_line(data)
+
+
         if block:
             block_dict = block.to_dict()
             node.blockchain.add_block_to_chain(block)
-            node.send_to_others(block_dict)
+            logger.info("Adding block: C=%s, proof=%s, G=%s, H=%s, context=%s",
+            block_dict["commitment"],block_dict["proof"],block_dict["challenge"]["G"],block_dict["challenge"]["H"],block_dict["context"])
+            # send asynchronously to peers (fire-and-forget)
+            threading.Thread(target=node.send_block_to_peer, args=(block_dict,), daemon=True).start()
             node.block_queue.put(block_dict)
 
-def receiving_thread(node: MapperNode):  # FIXED: Corrected spelling
-    print(f"[FLASK] Starting Flask server on port ")
-    
+
+def receiving_thread(node: MapperNode, host: str = "127.0.0.1", port: int = 3000) -> None:
+    """Run a simple Flask app that accepts /addBlock POST requests and forwards them to the node."""
     app = Flask(__name__)
-    print(f"[FLASK] Starting Flask server on port ")
-    @app.route("/addBlock", methods=["POST"])  # Fixed: methods=["POST"]
-    def addBlock():
-        print("**********")
-        
-        # Get raw data
-        raw_data = request.get_data(as_text=True)
-        print(f"Raw data received: '{raw_data}'")
-        
-        # Manual JSON parsing with better error handling
-        import json
+
+    @app.route("/addBlock", methods=["POST"])
+    def add_block_endpoint():
         try:
-            # if raw_data and raw_data.strip():
-            #     block_data = json.loads(raw_data)
-            #     print(f"✅ Successfully parsed: {block_data}")
-        # print("Listen for adding...")
-        # print("=== DEBUGGING REQUEST ===")
-        # print(f"1. Request method: {request.method}")
-        # print(f"2. Content-Type header: {request.headers.get('Content-Type')}")
-        # print(f"3. All headers: {dict(request.headers)}")
-        # print(f"4. Request data type: {type(request.data)}")
-        # print(f"5. Request data: {request.data}")
-        # print(f"6. Request form: {request.form}")
-        # print(f"7. Request args: {request.args}")
-        # print("==========================")
-        # try:
-        #     print("**********")
-        #     print(request.is_json)
-        #     print(type(request))
-            print(request.get_json())
-            block_data=request.get_json(silent=True)
-       
-            print("Received block data:")
-            print(block_data)  # Just print the dict directly
-            print("**********")
+            block_data = request.get_json(silent=True)
+            if not block_data:
+                logger.warning("No JSON payload provided to /addBlock")
+                return jsonify({"error": "No JSON payload"}), 400
 
-            if block_data:
-                # You need to access your node object here
-                # If node is global or needs to be passed, you'll need to handle that
-                node.receive_block(block_data)
-                print("Block data received successfully")
-                return jsonify({"status": "Block received successfully"}), 200
-            else:
-                print("No data received")
-                return jsonify({"error": "No data received"}), 400
-                
-        except Exception as e:
-            print(f"Error processing request: {e}")
-            return jsonify({"error": str(e)}), 500
-    print(f"[FLASK] Starting Flask server on port ")
-    app.run(host="127.0.0.1", port=3000, debug=False, use_reloader=False)
+            threading.Thread(target=node.receive_block, args=(block_data,), daemon=True).start()
+            return jsonify({"status": "Block received"}), 200
+        except Exception:
+            logger.exception("Failed to process /addBlock request")
+            return jsonify({"error": "internal error"}), 500
+
+    # Start Flask server (blocking call)
+    logger.info("Starting Flask server on %s:%s", host, port)
+    app.run(host=host, port=port, debug=False, use_reloader=False)
 
 
-
-
-# ==== Main Execution ====
+# --- Main --------------------------------------------------------------------
 if __name__ == "__main__":
-
     cfg = Config.Config()
-    
-    # # Get configuration values
 
-    challange_producer_ip = cfg.get("challange_producer", "challange_producer_ip")
-    port = cfg.get("challange_producer", "port")
+    challenge_producer_ip = cfg.get("challenge_producer", "challenge_producer_ip")
+    mapper_ip = cfg.get("mapper", "mapper_ip") if cfg.get("mapper", "mapper_ip") else "127.0.0.1"
+    print(challenge_producer_ip,mapper_ip)
+    node = MapperNode(challenge_producer_ip=challenge_producer_ip, mapper_ip=mapper_ip)
 
-    print(challange_producer_ip)
-    node = MapperNode()
-    miningThread = threading.Thread(target=probing_thread, args=(node,))
-    listenerThread = threading.Thread(target=receiving_thread, args=(node,))
+    miner = threading.Thread(target=probing_thread, args=(node,), daemon=True)
+    listener = threading.Thread(target=receiving_thread, args=(node, "127.0.0.1", 3000), daemon=True)
 
-    listenerThread.start()
-    miningThread.start()
+    listener.start()
+    miner.start()
 
-    miningThread.join()
-    # block_data = {
-    # "index": 1,
-    # "timestamp": 1690000000.123,
-    # "data": "some block data here",
-    # "challenge": {
-    #     "hash": "1a01d490b2d6122855139374dfba031b656b461d9c43a8061aa040d4691922db",
-    #     "G": "(425398446565641488338731775808961329113357485353252616587565840950603723215625087213539172265096743520546334628453, 1980471176119415062752217328296737005449857812742374580574266151834549718316024879994883789273623065899307567647646)",
-    #     "H": "(2374479878560242273270869702054694456711114465797292385221538578733806684133435227371993411013221883665131776246288, 671735796304006256671302080526037012701142269641587495453046745116200124149278582854357981777278398023330504744211)"
-    # },
-    # "proof": {'c': 3055097485998128619528281085384671012546757742365244555442668762725093608060, 'T': (523926493260490304734263680671079307987245818787583524998006552155146304937383875567765440149195285604318037589067, 455952557015687977331805662375092681743622109294918700754184318662480661628296998288698709966982177592252077771031), 'u': 23331702016959074949313797110749854327025667466395190297105553472585678851692, 'v': 43460036860996040928670834136993430694173481730575930854430757722641539726985, 'h': b"\xda\xe1-~\x08\xc4\xed\x92+U\xf0\xc9\xc6N\x82~\xd3\x99\xeb\xf8\xa8\xeaZ\xc1\xb5\x81\x9d\xf1ld\xdd\x1a"},
-    # "context": b"example-context-v1",
-    # "prev_hash": "previous_hash_value",
-    # "commitment": "(16355941984599323696009109342163762535512695232681655351171403793972728730838970886413394247159427102451093582278, 1196659696087892717412897177935583549961518178466089432115204239924410640837148141341063077480864464231022539628612)"
-    # }   
-
-
-    # node.receive_block(block_data)
+    # Keep main thread alive while daemon threads run
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Shutting down")
