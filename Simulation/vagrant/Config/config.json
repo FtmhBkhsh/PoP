@@ -2,15 +2,9 @@
     "challenge_producer": {
         "challenges_count": 1,
         "challenges_file_path": "challenges.csv",
-        "challenge_producer_ip": "127.0.0.1",
+        "challenge_producer_ip": "{{IP}}",
         "port": 5000,
         "debug": true
-        },
-    "server": {
-        "host": "0.0.0.0",
-        "port": 5000,
-        "debug": true,
-        "workers": 4
     },
     "logging": {
         "level": "INFO",
