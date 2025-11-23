@@ -1,15 +1,18 @@
 import os 
 import json 
+import socket
+
 
 class Config:
     def __init__(self, config_file="Config\config.json"):
+        node_ip = socket.gethostbyname(socket.gethostname())
         self.config_file = config_file
         self.default_config = {
             "challenge_producer": {
                 "challenges_count": 1,
                 "challenges_count": 1,
                 "challenges_file_path": "challenges.csv",
-                "challenge_producer_ip": "127.0.0.1",
+                "challenge_producer_ip": node_ip,
                 "port": 5000
             },
             "server": {
@@ -56,9 +59,8 @@ class Config:
         except Exception as e:
             print(f"❌ Error creating config: {e}")
     
-    def get(self, *keys):
-        """Get nested config value using dot notation"""
-        result = self.config
-        for key in keys:
-            result = result.get(key, {})
-        return result if result else None
+    def get(self, section: str, key: str, default=None):
+        section_data = self.config.get(section, {})
+        if isinstance(section_data, dict):
+            return section_data.get(key, default)
+        return default
