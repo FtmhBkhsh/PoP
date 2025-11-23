@@ -19,35 +19,54 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       node.vm.hostname = name
       node.vm.network "private_network", ip: ip
 
-      # Copy mapper script
+      # Copy map.py to mapper nodes
       if name.start_with?("mapper")
-        node.vm.provision "file", source: "./map.py", destination: "/home/vagrant/map.py"
+        node.vm.provision "file",
+          source: "./map.py",
+          destination: "/home/vagrant/map.py"
       end
 
-      # Copy reducer script
+      # Copy reduce.py to reducer nodes
       if name.start_with?("reducer")
-        node.vm.provision "file", source: "./reduce.py", destination: "/home/vagrant/reduce.py"
+        node.vm.provision "file",
+          source: "./reduce.py",
+          destination: "/home/vagrant/reduce.py"
       end
 
-      # VM hardware
+      # Copy the config template to each VM
+      node.vm.provision "file",
+        source: "./config/config.json",
+        destination: "/home/vagrant/config.json"
+
       node.vm.provider "virtualbox" do |vb|
         vb.memory = 512
         vb.cpus = 1
       end
 
-      # Install Python + requirements on mapper nodes only
+      # Install python on all nodes
       node.vm.provision "shell", inline: <<-SHELL
         apt-get update -y
         apt-get install -y python3 python3-pip
       SHELL
 
-      # Install pip requirements only on mapper nodes
+      # Install python requirements ONLY on mapper nodes
       if name.start_with?("mapper")
-        node.vm.provision "file", source: "./requirements.txt", destination: "/home/vagrant/requirements.txt"
+        node.vm.provision "file",
+          source: "./requirements.txt",
+          destination: "/home/vagrant/requirements.txt"
+
         node.vm.provision "shell", inline: <<-SHELL
           pip3 install -r /home/vagrant/requirements.txt
         SHELL
       end
+
+      # Generate final config file with correct IP
+      node.vm.provision "shell", inline: <<-SHELL
+        mkdir -p /home/vagrant/config
+        sed "s/{{IP}}/#{ip}/" /home/vagrant/config.json \
+          > /home/vagrant/config/config.json
+      SHELL
+
     end
   end
 end
