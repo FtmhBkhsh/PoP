@@ -18,47 +18,36 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       node.vm.box = "ubuntu/bionic64"
       node.vm.hostname = name
       node.vm.network "private_network", ip: ip
-      if "map" in name:
+
+      # Copy mapper script
+      if name.start_with?("mapper")
         node.vm.provision "file", source: "./map.py", destination: "/home/vagrant/map.py"
       end
-      if "reduve" in name:
+
+      # Copy reducer script
+      if name.start_with?("reducer")
         node.vm.provision "file", source: "./reduce.py", destination: "/home/vagrant/reduce.py"
       end
+
+      # VM hardware
       node.vm.provider "virtualbox" do |vb|
         vb.memory = 512
         vb.cpus = 1
       end
 
-
+      # Install Python + requirements on mapper nodes only
       node.vm.provision "shell", inline: <<-SHELL
         apt-get update -y
         apt-get install -y python3 python3-pip
-
-        # Install psycopg2 for Python DB access
-        pip3 install psycopg2-binary
-
-        # DB-specific setup
-        if [ "#{name}" = "db" ]; then
-          apt-get install -y postgresql postgresql-contrib
-          sudo -u postgres psql -c "CREATE USER vagrant WITH PASSWORD 'vagrant';"
-          sudo -u postgres createdb -O vagrant mapperdb
-
-          echo "listen_addresses = '*'" >> /etc/postgresql/10/main/postgresql.conf
-          echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/10/main/pg_hba.conf
-          systemctl restart postgresql
-
-          # Add test trigger words
-          sudo -u postgres psql -d mapperdb -c "
-            CREATE TABLE IF NOT EXISTS config (
-              id SERIAL PRIMARY KEY,
-              trigger_word TEXT,
-              used BOOLEAN DEFAULT FALSE
-            );
-            INSERT INTO config (trigger_word) VALUES
-              ('mine'), ('gold'), ('spark'), ('dig'), ('maple'), ('pow'), ('reduce');
-          "
-        fi
       SHELL
+
+      # Install pip requirements only on mapper nodes
+      if name.start_with?("mapper")
+        node.vm.provision "file", source: "./requirements.txt", destination: "/home/vagrant/requirements.txt"
+        node.vm.provision "shell", inline: <<-SHELL
+          pip3 install -r /home/vagrant/requirements.txt
+        SHELL
+      end
     end
   end
 end
