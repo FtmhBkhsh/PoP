@@ -1,22 +1,19 @@
 import os 
 import json 
-import socket
 
 
 class Config:
-    def __init__(self, config_file="Config\config.json"):
-        node_ip = socket.gethostbyname(socket.gethostname())
+    def __init__(self, config_file="Config/config.json"):
         self.config_file = config_file
         self.default_config = {
             "challenge_producer": {
-                "challenges_count": 1,
-                "challenges_count": 1,
+                "challenges_count": 3,
                 "challenges_file_path": "challenges.csv",
-                "challenge_producer_ip": node_ip,
+                "challenge_producer_ip": "192.168.56.10",
                 "port": 5000
             },
-            "server": {
-                "host": "0.0.0.0",
+            "mine": {
+                "my_ip": "MineIP",
                 "port": 5000,
                 "debug": True,
                 "workers": 4

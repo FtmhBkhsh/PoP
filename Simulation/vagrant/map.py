@@ -23,9 +23,14 @@ logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 CURVE_ORDER = b381.curve_order
 
 # Default endpoints (override via config if required)
-REDUCER_ENDPOINTS = ["http://127.0.0.1:5000"]
-MAPPER_ENDPOINTS = ["http://127.0.0.1:3000"]
-
+REDUCER_ENDPOINTS = ["192.168.56.21:5000"]
+MAPPER_ENDPOINTS = ["http://192.168.56.11:3000",
+                    "http://192.168.56.12:3000"
+                    # ,
+                    # "http://192.168.56.13:3000",
+                    # "http://192.168.56.14:3000",
+                    # "http://192.168.56.15:3000"
+                    ]
 # --- Utilities ----------------------------------------------------------------
 
 def make_json_safe(obj: Any) -> Any:
@@ -119,11 +124,11 @@ class MapperNode:
     optional mapper IP (used in commitments/context).
     """
 
-    def __init__(self, challenge_producer_ip: str, mapper_ip: str = "127.0.0.1") -> None:
+    def __init__(self, challenge_producer_ip: str,my_ip) -> None:
         self.blockchain = Blockchain()
         self.trigger_lock = threading.Lock()
         self.challenge_producer_ip = challenge_producer_ip
-        self.mapper_ip = mapper_ip
+        self.mapper_ip = my_ip
         self.current_challenge: Dict[str, Any] = self.get_new_challenge()
         self.block_queue: Queue = Queue()
         logger.info("Node started with initial challenge: %s", self.current_challenge)
@@ -143,7 +148,8 @@ class MapperNode:
     def update_challenge(self) -> None:
         with self.trigger_lock:
             self.current_challenge = self.get_new_challenge()
-            logger.info("Updated challenge to: %s", self.current_challenge)
+            logger.info("Updated challenge")
+            # to: %s", self.current_challenge)
 
     # ---- Probing / Mining --------------------------------------------------
     def probe_line(self, line: str) -> Tuple[List[Tuple[str, int]], Optional[Block]]:
@@ -153,10 +159,31 @@ class MapperNode:
 
         # Compute a hash for candidate matching
         wc_hash = hashlib.sha256(str(word_counts).encode()).hexdigest()
-        trigger_hash = self.current_challenge.get("hash", "")
-        logger.debug("Comparing hashes: trigger=%s candidate=%s", trigger_hash, wc_hash)
+        
+        challenge = self.current_challenge
 
-        if trigger_hash and trigger_hash == wc_hash:
+        # Parse outer JSON if needed
+        if isinstance(challenge, str):
+            challenge = json.loads(challenge)
+
+        # Force everything into a list
+        if isinstance(challenge, dict):
+            challenge = [challenge]
+
+        # Parse inner JSON strings
+        normalized = []
+        for ch in challenge:
+            if isinstance(ch, str):
+                ch = json.loads(ch)
+            if isinstance(ch, dict):
+                normalized.append(ch)
+
+        self.current_challenge = normalized
+
+        # trigger_hash = self.current_challenge.get("hash", "")
+        # logger.debug("Comparing hashes: trigger=%s candidate=%s", trigger_hash, wc_hash)
+        # if trigger_hash and trigger_hash == wc_hash:
+        if any(challenge.get("hash") == wc_hash for challenge in self.current_challenge):
             logger.info("Found matching line for current challenge — creating commitment/proof")
             commitment, proof = self.make_proof(word_counts)
             block = Block(
@@ -179,6 +206,9 @@ class MapperNode:
         representations of points; it will parse them, compute a commitment and
         generate a proof using the Commitment helpers.
         """
+        print(self.current_challenge)
+        self.current_challenge=self.current_challenge[0]
+        print(type(self.current_challenge))
         if not self.current_challenge:
             raise RuntimeError("No current challenge available for making proof")
 
@@ -206,15 +236,28 @@ class MapperNode:
                 except Exception:
                     logger.exception("Failed to send word count to %s — continuing to next endpoint", endpoint)
 
-    def send_block_to_peer(self, block_dict: Dict[str, Any], endpoint: str = "http://127.0.0.1:3000/addBlock") -> Optional[requests.Response]:
-        serializable = make_json_safe(block_dict)
-        try:
-            resp = requests.post(endpoint, json=serializable, timeout=5)
-            resp.raise_for_status()
-            return resp
-        except requests.RequestException:
-            logger.exception("Failed to send block to %s", endpoint)
-            return None
+    def send_block_to_peer(self, block_dict: Dict[str, Any]) -> Optional[requests.Response]:
+        print("http://"+mapper_ip+":3000")
+        MAPPER_ENDPOINTS.remove("http://"+mapper_ip+":3000")
+        for endpoint in MAPPER_ENDPOINTS:
+            serializable = make_json_safe(block_dict)
+            attempt = 0
+            max_retries = 3
+            delay = 1
+            while attempt < max_retries:
+                try:
+                    resp = requests.post(f"{endpoint}/addBlock", json=serializable, timeout=5)
+                    resp.raise_for_status()
+                    logger.info("sending block to %s in %d attempts", endpoint, attempt)
+                    return resp  # Success
+                except requests.RequestException:
+                    attempt += 1
+                    logger.warning(
+                        "Failed to send block to %s (attempt %d/%d). Retrying in %d seconds...",
+                        endpoint, attempt, max_retries, delay
+                    )
+                    time.sleep(delay)
+            logger.error("Giving up on sending block to %s after %d attempts", endpoint, max_retries)
 
     # ---- Parsing and verification helpers ---------------------------------
     def parse_point(self, value: Any) -> Tuple[int, int]:
@@ -281,15 +324,16 @@ class MapperNode:
             context = self.parse_context(block_data.get("context"))
             # Parse proof
             proof = self.parse_proof(block_data["proof"])
-            logger.info("Sanity check for verification")
-            logger.info("Expected C: %s", block.commitment)
-            logger.info("Received C: %s", C)
-            logger.info("Expected context: %s", node.mapper_ip.encode())
-            logger.info("Received context: %s", context)
+            # logger.info("Sanity check for verification")
+            # logger.info("Expected C: %s", block.commitment)
+            # logger.info("Received C: %s", C)
+            # logger.info("Expected context: %s", node.mapper_ip.encode())
+            # logger.info("Received context: %s", context)
             # Use Commitment.verify_pedersen_proof when we have everything needed
             if C is not None and proof is not None and G is not None and H is not None:
-                logger.info("Verifying block: C=%s, proof=%s, G=%s, H=%s, context=%s",
-            C, proof, G, H, context)
+                logger.info("Verifying block")
+                # : C=%s, proof=%s, G=%s, H=%s, context=%s",
+            # C, proof, G, H, context)
                 ok = Commitment.verify_pedersen_proof(C, proof, G, H, context=context)
                 if ok:
                     logger.info("External block verified — appending to chain")
@@ -317,24 +361,25 @@ class MapperNode:
 
 # --- Background threads ------------------------------------------------------
 
-def probing_thread(node: MapperNode, csv_path: str = "input_part_1_of_4.csv") -> None:
+def probing_thread(node: MapperNode, csv_path: str = "data.csv") -> None:
     """Read lines from CSV and attempt to probe/mine blocks."""
+    time.sleep(5)#stop until all get ready
     df = pd.read_csv(csv_path)
     for data in df.get("answer", []):
+        logger.info("====================================new data")
         word_counts, block = node.probe_line(data)
-
-
         if block:
             block_dict = block.to_dict()
             node.blockchain.add_block_to_chain(block)
-            logger.info("Adding block: C=%s, proof=%s, G=%s, H=%s, context=%s",
-            block_dict["commitment"],block_dict["proof"],block_dict["challenge"]["G"],block_dict["challenge"]["H"],block_dict["context"])
+            logger.info("Adding block:")
+            # C=%s, proof=%s, G=%s, H=%s, context=%s",
+            # block_dict["commitment"],block_dict["proof"],block_dict["challenge"]["G"],block_dict["challenge"]["H"],block_dict["context"])
             # send asynchronously to peers (fire-and-forget)
             threading.Thread(target=node.send_block_to_peer, args=(block_dict,), daemon=True).start()
             node.block_queue.put(block_dict)
+    logger.info("====================================end")
 
-
-def receiving_thread(node: MapperNode, host: str = "127.0.0.1", port: int = 3000) -> None:
+def receiving_thread(node: MapperNode, port: int , ready_event: threading.Event) -> None:
     """Run a simple Flask app that accepts /addBlock POST requests and forwards them to the node."""
     app = Flask(__name__)
 
@@ -352,24 +397,37 @@ def receiving_thread(node: MapperNode, host: str = "127.0.0.1", port: int = 3000
             logger.exception("Failed to process /addBlock request")
             return jsonify({"error": "internal error"}), 500
 
+    @app.route("/getBlocks", methods=["GET"])
+    def get_blocks_endpoint():
+        try:        
+            return jsonify(Blockchain), 200
+        except Exception:
+            logger.exception("Failed to process /getBlocks request")
+            return jsonify({"error": "internal error"}), 500
+
     # Start Flask server (blocking call)
-    logger.info("Starting Flask server on %s:%s", host, port)
-    app.run(host=host, port=port, debug=False, use_reloader=False)
+    # app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    ready_event.set()
+    app.run(host=mapper_ip, port=port, debug=False, use_reloader=False)
+    
+
 
 
 # --- Main --------------------------------------------------------------------
 if __name__ == "__main__":
     cfg = Config.Config()
-
     challenge_producer_ip = cfg.get("challenge_producer", "challenge_producer_ip")
-    mapper_ip = cfg.get("mapper", "mapper_ip") if cfg.get("mapper", "mapper_ip") else "127.0.0.1"
+    mapper_ip = cfg.get("mine", "my_ip")
     print(challenge_producer_ip,mapper_ip)
-    node = MapperNode(challenge_producer_ip=challenge_producer_ip, mapper_ip=mapper_ip)
+    node = MapperNode(challenge_producer_ip=challenge_producer_ip, my_ip=mapper_ip)
 
-    miner = threading.Thread(target=probing_thread, args=(node,), daemon=True)
-    listener = threading.Thread(target=receiving_thread, args=(node, "127.0.0.1", 3000), daemon=True)
+    ready_event = threading.Event()
 
+    listener = threading.Thread(target=receiving_thread, args=(node,  3000, ready_event), daemon=True)
     listener.start()
+    ready_event.wait()
+
+    miner = threading.Thread(target=probing_thread, args=(node,),   daemon=False)
     miner.start()
 
     # Keep main thread alive while daemon threads run

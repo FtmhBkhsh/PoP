@@ -1,0 +1,57 @@
+instruction,answer,dataset,word_count,word_complexity
+what is levaquin prescribed for?,Levaquin ® (levofloxacin) is prescribed for preventing infection after exposure to inhaled anthrax in adults and children.,ms_marco,17,6.058823529
+"Complete the following sentence.
+
+Ryan kept track of everywhere that Ian went, because ","he was concerned about Ian's safety and well-being. Ryan may have had reasons to worry about Ian's whereabouts, such as if Ian had a history of getting into trouble or if he was going through a difficult time in his life. By keeping track of Ian's movements, Ryan could ensure that Ian was not putting himself in harm's way or getting involved in any risky situations. Additionally, Ryan may have wanted to be available to Ian if he needed help or support, and knowing where Ian was at all times would make it easier for Ryan to provide assistance if necessary. Overall, Ryan's decision to keep track of Ian's movements was likely motivated by a desire to protect and care for his friend.",,129,4.255813953
+"Given a document, an entity and its sentiment towards the entity, verify if it is the correct sentiment towards the entity. Answer should be yes or no. Note that URLs in the text have been replaced with [Link].
+
+Verify if the sentiment of the following document towards the entity Allyn Gibson is Neutral . In November of last year  three Oberlin students  all minorities  were arrested after trying to shoplift from the bakery's wine selection  and then ""punching and kicking the white shopkeeper ""  Allyn Gibson   according to an Associated Press report. Two of the students claimed that they were ""racially profiled"" by the shop owner  and that they'd simply come in to buy wine  albeit using a fake ID  when  Gibson  accused them of stealing.
+But by the time the students admitted that they probably weren't profiled  the damage had already been done in the Oberlin community  according to a legal complaint filed by  Gibson  late last month. Students have staged a number of protests outside the bakery  and the Oberlin student senate passed a resolution claiming  Gibson  has a history of racial profiling and discriminatory treatment.
+The lack of proof hasn't stopped students from reportedly boycotting the cafe  and   Gibson  claims student advisers and campus tour guides tell prospective students that  Gibson 's is racist.  Gibson  even alleges that the school administration has participated in the protests  and that  after finding out students had stolen from the bakery  pushed the bakery's owners to drop the criminal charges and let Oberlin handle the incident instead of law enforcement.
+I have not taken a paycheck since this happened more than a year ago   Gibson  said in an email. Sometimes you have to stand up to a large institution. Powerful institutions  including Oberlin College  and their members must follow the same laws as the rest of us.","To verify if the sentiment of the document towards the entity Allyn Gibson is Neutral, follow these steps:
+
+1. Read the document carefully to understand the context and the sentiment expressed towards the entity Allyn Gibson.
+2. Look for any explicit statements or descriptions that indicate the sentiment towards Allyn Gibson.
+3. In this document, there are several statements that describe the sentiment towards Allyn Gibson. For example, it mentions that students have accused Gibson of racial profiling and discriminatory treatment.
+4. Identify the sentiment expressed in these statements. In this case, the sentiment is negative, as the document describes accusations and protests against Gibson.
+5. Compare the identified sentiment with the given sentiment of Neutral for Allyn Gibson. 
+6. Since the identified sentiment is negative, the answer to the verification question is No, indicating that the sentiment of the document towards Allyn Gibson is not Neutral.
+
+By following these steps and analyzing the content of the document, we can determine the correct sentiment towards the entity Allyn Gibson and verify if it matches the given sentiment.",,177,5.378531073
+"I am accountable to no one.
+
+Does it follow that ""No one accounts for me.""?","The statement I am accountable to no one implies that the person making the statement is not answerable to anyone for their actions or decisions. However, it does not necessarily mean that no one is keeping track of their actions or decisions.
+
+In fact, it is possible that there are people or entities who are monitoring the person's actions and decisions, even if they are not holding them accountable. For example, a government agency may be tracking the person's online activity for security purposes, but may not be holding them accountable for any wrongdoing.
+
+Therefore, it does not necessarily follow that No one accounts for me simply because someone claims to be accountable to no one. It is possible that there are other factors at play, and further investigation would be needed to determine the true level of accountability in the situation.",,144,4.833333333
+"How can i list out the contents of an array line by line using the rust programing language
+for example the array [1, 2] when inputed would return
+1
+2
+the code needs to be fast.","Rust is a compiled language without garbage collection, so it is almost as fast as C.
+
+Here is the code to print the array:
+
+```rust
+fn main() {
+    let arr = [1, 2];
+    for element in arr.iter() {
+        println!({}, element);
+    }
+}
+```",OA2,39,3.972972973
+Generate a context and a hypothesis.,"Context: In recent years, there has been a growing concern about the impact of social media on mental health. Many studies have suggested that excessive use of social media can lead to negative outcomes such as anxiety, depression, and low self-esteem. However, there are also studies that suggest that social media can have positive effects on mental health, such as providing social support and reducing loneliness.
+
+Hypothesis: The impact of social media on mental health is complex and multifaceted, and depends on various factors such as the individual's personality, social support network, and patterns of social media use.",,99,5.212121212
+Generate a context and a hypothesis.,"Okay, little one, imagine we're talking about a world where colorful balloons are floating in the sky every day. In this world, people believe that every time a kind person does a good deed, a new balloon appears high up in the sky. 
+
+Now, our hypothesis, or guess, would be that if we see more balloons appearing in the sky, it means many people are doing good deeds. So, we look up and notice if there are more balloons to find out if people are being kind. This is like a little game to see if our guess is correct or not!",,103,3.951456311
+"It is much more likely that they are manmade and the big sinner is the burning of fossil fuels Read more here
+
+Please fix the punctuation.","Certainly! Here's the corrected sentence: 
+
+It is much more likely that they are manmade, and the big sinner is the burning of fossil fuels. Read more here. 
+
+I added a comma after manmade to separate the two independent clauses in the sentence, and capitalized the first letter of the second sentence.",,52,4.615384615
+when did the fifth harry potter come out??,"The fifth book in the Harry Potter series, titled Harry Potter and the Order of Phoenix, was released on June 21, 2003. The book was published by Bloomsbury in the United Kingdom and Scholastic in the United States. It was written by British author J.K. Rowling and follows the story of Harry Potter as he returns to Hogwarts School of Witchcraft and Wizardry for his fifth year. The book was highly anticipated by fans of the series and was met with critical acclaim upon its release. It went on to become a bestseller and was later adapted into a film in 2007. Overall, the release of the fifth Harry Potter book was a significant event in the literary world and a major milestone in the series' success.",,127,4.464566929

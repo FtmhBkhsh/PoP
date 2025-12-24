@@ -1,11 +1,14 @@
 {
     "challenge_producer": {
-        "challenges_count": 1,
+        "challenges_count": 3,
         "challenges_file_path": "challenges.csv",
-        "challenge_producer_ip": "{{IP}}",
+        "challenge_producer_ip": "192.168.56.10",
+       
         "port": 5000,
         "debug": true
     },
+    "mine": {
+         "my_ip": "{{IP}}"},
     "logging": {
         "level": "INFO",
         "file": "app.log",
