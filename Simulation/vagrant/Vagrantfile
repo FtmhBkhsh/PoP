@@ -2,22 +2,31 @@
 VAGRANTFILE_API_VERSION = "2"
 
 NODES = {
-  "db"       => "192.168.56.10",
-  "mapper1"  => "192.168.56.11",
-  "mapper2"  => "192.168.56.12",
-  "mapper3"  => "192.168.56.13",
-  "mapper4"  => "192.168.56.14",
-  "mapper5"  => "192.168.56.15",
-  "reducer1" => "192.168.56.21",
-  "reducer2" => "192.168.56.22"
+  "producer"  => "192.168.56.10",
+  "mapper1"   => "192.168.56.11",
+  "mapper2"   => "192.168.56.12",
+  # "mapper3"   => "192.168.56.13",
+  # "mapper4"   => "192.168.56.14",
+  # "mapper5"   => "192.168.56.15",
+  "reducer1"  => "192.168.56.21"
+  # ,
+  # "reducer2"  => "192.168.56.22"
 }
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   NODES.each do |name, ip|
     config.vm.define name do |node|
-      node.vm.box = "ubuntu/bionic64"
+      node.vm.box = "ubuntu/jammy64"
       node.vm.hostname = name
-      node.vm.network "private_network", ip: ip
+      node.vm.network "private_network", ip: ip,virtualbox__hostonly: "vboxnet0"
+
+
+      # Copy challangeProducer.py to challange Producer node
+      if name == "producer"
+        node.vm.provision "file",
+          source: "./challangeProducer.py",
+          destination: "/home/vagrant/challangeProducer.py"
+      end
 
       # Copy map.py to mapper nodes
       if name.start_with?("mapper")
@@ -34,9 +43,24 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       end
 
       # Copy the config template to each VM
-      node.vm.provision "file",
-        source: "./config/config.json",
-        destination: "/home/vagrant/config.json"
+        node.vm.provision "file",
+        source: "./Commitment/Commitment.py",
+        destination: "/home/vagrant/Commitment/Commitment.py"
+
+        node.vm.provision "file",
+        source: "./Config/Config.py",
+        destination: "/home/vagrant/Config/Config.py"
+
+        node.vm.provision "file",
+        source: "./Config/config.json",
+        destination: "/home/vagrant/Config/config.json"
+
+        csv_file = "./#{ip}.csv"
+        if File.exist?(csv_file)
+          node.vm.provision "file",
+            source: csv_file,
+            destination: "/home/vagrant/data.csv"
+        end
 
       node.vm.provider "virtualbox" do |vb|
         vb.memory = 512
@@ -46,7 +70,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       # Install python on all nodes
       node.vm.provision "shell", inline: <<-SHELL
         apt-get update -y
-        apt-get install -y python3 python3-pip
+        apt-get install -y python3 python3-pip python3-venv
       SHELL
 
       # Install python requirements ONLY on mapper nodes
@@ -54,17 +78,45 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         node.vm.provision "file",
           source: "./requirements.txt",
           destination: "/home/vagrant/requirements.txt"
-
         node.vm.provision "shell", inline: <<-SHELL
-          pip3 install -r /home/vagrant/requirements.txt
+          # pip3 install -r /home/vagrant/requirements.txt
+          python3 -m venv /home/vagrant/venv
+          /home/vagrant/venv/bin/pip install --upgrade pip
+          /home/vagrant/venv/bin/pip install -r /home/vagrant/requirements.txt
+          pip install --ignore-installed blinker
+
+        SHELL
+      end
+
+      if name == "producer"
+        node.vm.provision "file",
+          source: "./requirements.txt",
+          destination: "/home/vagrant/requirements.txt"
+        node.vm.provision "shell", inline: <<-SHELL
+          # pip3 install -r /home/vagrant/requirements.txt
+          python3 -m venv /home/vagrant/venv
+          /home/vagrant/venv/bin/pip install --upgrade pip
+          /home/vagrant/venv/bin/pip install -r /home/vagrant/requirements.txt
+          pip install --ignore-installed blinker
+
         SHELL
       end
 
       # Generate final config file with correct IP
       node.vm.provision "shell", inline: <<-SHELL
-        mkdir -p /home/vagrant/config
-        sed "s/{{IP}}/#{ip}/" /home/vagrant/config.json \
-          > /home/vagrant/config/config.json
+        # mkdir -p /home/vagrant/Config
+        # sed -i "s/{{IP}}/#{ip}/" config.json
+        sed -i "s/{{IP}}/#{ip}/g" /home/vagrant/Config/config.json
+        #   > /home/vagrant/Config/config.json
+      SHELL
+
+      
+      # Generate final config file with correct IP
+      node.vm.provision "shell", inline: <<-SHELL
+        # mkdir -p /home/vagrant/Config
+        # sed -i "s/MineIP/#{ip}/" Config.py
+        sed "s/{{IP}}/#{ip}/" /home/vagrant/Config/Config.py
+        #   > /home/vagrant/Config/Config.py
       SHELL
 
     end
