@@ -1,132 +1,200 @@
+"""
+Producer Node - Challenge Service
+
+This module:
+- Generates cryptographic commitments from dataset entries.
+- Stores commitments in a CSV file.
+- Exposes a Flask API to retrieve random commitments.
+- Periodically contacts known requestors to fetch blockchain blocks.
+
+Dependencies:
+- pandas
+- flask
+- requests
+- hashlib
+"""
 
 import os
 import time
 import hashlib
-import pandas as pd
-from flask import Flask, jsonify
 import logging
-from flask import request
 import threading
-
+import pandas as pd
+import requests
 from threading import Lock
+from flask import Flask, jsonify, request
 from IPRrelationProof.IPRrelationProof import IPRrelationProof
 from Config import Config
 
-# Configuration
-MY_IP = "192.168.56.10"
+# -----------------------------------------------------------------------------
+# Configuration & Globals
+# -----------------------------------------------------------------------------
+
+app = Flask(__name__)
+logger = logging.getLogger("producer_node")
+logging.basicConfig(level=logging.INFO)
+
+known_requestors: set[str] = set()
+requestors_lock = Lock()
+
+h_global = hashlib.sha256(b"network-epoch-seed").digest()
 
 
-def challenge_existence_check(file_path: str):
+# -----------------------------------------------------------------------------
+# Utility Functions
+# -----------------------------------------------------------------------------
+
+def challenge_existence_check(file_path: str) -> None:
     """
-    Checks if the challenge file exists and has at least one line.
-    If empty, generates one challenge.
+    Ensure challenge file exists and contains at least one entry.
+    If the file does not exist or is empty, one challenge is generated.
+
+    Args:
+        file_path: Path to the commitments CSV file.
     """
     if not os.path.exists(file_path):
+        logger.info("Challenge file not found. Generating new challenge.")
         generate_challenge(1)
-        logging.info("not os.path.exists")
         return
 
     with open(file_path, "r", encoding="utf-8") as f:
-        first_line = f.readline().strip()
-        logging.info("path exists")
-        if not first_line:
+        if not f.readline().strip():
+            logger.info("Challenge file empty. Generating new challenge.")
             generate_challenge(1)
-            logging.info("path exists but")
 
 
-
-def get_random_from_csv(filename: str, n=1) -> dict:
+def get_random_from_csv(filename: str, n: int = 1) -> dict:
     """
-    Reads a CSV file and returns one random row as a dictionary.
-    """
-    filepath = os.path.join(os.path.dirname(__file__), filename)
-    if not os.path.exists(filepath):
-        raise FileNotFoundError(f"File '{filename}' not found next to the script.")
+    Return a random row from a CSV file as a dictionary.
 
-    df = pd.read_csv(filepath)
+    Args:
+        filename: Path to CSV file.
+        n: Number of samples (default=1).
+
+    Returns:
+        Dictionary representing the selected row.
+    """
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"File '{filename}' not found.")
+
+    df = pd.read_csv(filename)
     if df.empty:
-        raise ValueError("The CSV file is empty.")
-    random_row = df.sample(n).iloc[0]
-    print(f"______________________________random_row______________________________:\n{random_row}")
-    return random_row.to_dict()
+        raise ValueError("CSV file is empty.")
+
+    row = df.sample(n).iloc[0]
+    return row.to_dict()
 
 
 def probe_data(data: str) -> list[tuple[str, int]]:
     """
-    Splits a string into words and returns a list of tuples (word, count=1).
+    Split text into words and convert into (word, 1) tuples.
+    this is an Examole of the proccesing.
+
+    Args:
+        data: Input text.
+
+    Returns:
+        List of (word, 1) tuples.
     """
     words = data.strip().split()
     return [(word, 1) for word in words]
 
 
-def generate_challenge(n: int = 1):
-    """
-    'n' Generates challenges, computes hashes, and saves them to 'challenges.csv'.
-    """
-    for i in range(n):
+# -----------------------------------------------------------------------------
+# Challenge Generation
+# -----------------------------------------------------------------------------
 
-        print(f"============================= Challenge {i + 1} =============================")
+def generate_challenge(n: int = 1) -> None:
+    """
+    Generate `n` commitments and append them to the challenge CSV file.
+
+    Each challenge:
+    - Randomly selects an answer from data.csv
+    - Computes word frequency structure
+    - Hashes the structure
+    - Derives generators G and H
+
+    Args:
+        n: Number of commitments to generate.
+    """
+    for _ in range(n):
         random_data = get_random_from_csv("data.csv")
         word_counts = probe_data(random_data["answer"])
-        print(word_counts)
-        word_counts_hash = hashlib.sha256(str(word_counts).encode()).hexdigest()
-        first_word, last_word = word_counts[0][0], word_counts[-1][0]
-        G = IPRrelationProof.derive_G(b"base-generator")
-        H= IPRrelationProof.derive_ip_generator(h_global, producer_ip)
 
-        # Load existing challenges or create new DataFrame
+        word_counts_hash = hashlib.sha256(
+            str(word_counts).encode()
+        ).hexdigest()
+
+        G = IPRrelationProof.derive_G(b"base-generator")
+        H = IPRrelationProof.derive_ip_generator(h_global, producer_ip)
+
         try:
-            df = pd.read_csv("challenges.csv")
-        except (pd.errors.EmptyDataError, FileNotFoundError):
+            df = pd.read_csv(commitments_file_path)
+        except (FileNotFoundError, pd.errors.EmptyDataError):
             df = pd.DataFrame()
 
-        new_row = pd.DataFrame([{"hash": word_counts_hash, "G": G, "H": H}])
+        new_row = pd.DataFrame([{
+            "hash": word_counts_hash,
+            "G": G,
+            "H": H
+        }])
+
         df = pd.concat([df, new_row], ignore_index=True)
-        df.to_csv("challenges.csv", index=False)
+        df.to_csv(commitments_file_path, index=False)
 
-        print(f"_______________________________hash_______________________________:\n{word_counts_hash}")
-        print("=====================================================================")
+        logger.info("Generated challenge with hash: %s", word_counts_hash)
 
 
-# --- Flask API ---
-app = Flask(__name__)
+# -----------------------------------------------------------------------------
+# Flask Routes
+# -----------------------------------------------------------------------------
 
 @app.route("/challenge", methods=["GET"])
 def random_challenge():
     """
-    Returns a random challenge from the CSV file.
+    Return a random challenge.
+
+    The requester IP is stored for future block synchronization.
+
+    Returns:
+        JSON response containing challenge data.
     """
     try:
-        # Save requester IP
         requester_ip = request.remote_addr
-        known_requestors.add(requester_ip)
+
+        with requestors_lock:
+            known_requestors.add(requester_ip)
 
         logger.info("Challenge requested by %s", requester_ip)
 
-        challenge_existence_check(challenges_file_path)
-        result = get_random_from_csv(challenges_file_path,n)
+        challenge_existence_check(commitments_file_path)
+        result = get_random_from_csv(commitments_file_path)
 
         return jsonify(result), 200
 
-        # return jsonify({
-        #     "hash": result["hash"],
-        #     "G": result["G"],
-        #     "H": result["H"]
-        # }), 200
-
     except Exception as e:
+        logger.exception("Error serving challenge")
         return jsonify({"error": str(e)}), 400
-    
-def start_challenge_listener():
-    print(producer_ip,type(producer_ip))
-    """Thread 1: listens for challenge requests"""
+
+
+# -----------------------------------------------------------------------------
+# Background Threads
+# -----------------------------------------------------------------------------
+
+def start_challenge_listener() -> None:
+    """
+    Start Flask challenge listener.
+    """
     logger.info("Starting challenge listener on %s:%s",
                 producer_ip, port)
+
     app.run(host=producer_ip, port=port, threaded=True)
 
-def request_last_10_blocks():
-    """Periodically request last 10 blocks from a known requestor"""
 
+def request_last_10_blocks() -> None:
+    """
+    Periodically request last 10 blocks from a known requestor.
+    """
     while True:
         with requestors_lock:
             if not known_requestors:
@@ -134,46 +202,39 @@ def request_last_10_blocks():
                 time.sleep(5)
                 continue
 
-            # Pick one requestor (simple strategy)
             target_ip = next(iter(known_requestors))
 
         try:
             url = f"http://{target_ip}:5000/getBlocks"
-            response = request.get(url, params={"limit": 10}, timeout=5)
+            response = requests.get(url, params={"limit": 10}, timeout=5)
 
             if response.status_code == 200:
-                blocks = response.json()
                 logger.info("Received last 10 blocks from %s", target_ip)
             else:
-                logger.warning(
-                    "Failed to get blocks from %s (status %s)",
-                    target_ip, response.status_code
-                )
+                logger.warning("Failed to get blocks from %s (status %s)",
+                               target_ip, response.status_code)
 
         except Exception as e:
             logger.error("Error contacting %s: %s", target_ip, e)
 
         time.sleep(10)
 
+
+# -----------------------------------------------------------------------------
+# Main Entry
+# -----------------------------------------------------------------------------
+
 if __name__ == "__main__":
 
-    # Global randomness / epoch seed
-    h_global = hashlib.sha256(b"network-epoch-seed").digest()
-
-    known_requestors = set()
-    requestors_lock = Lock()
     cfg = Config.Config()
-    
-    n=3
-    # Get configuration values
-    challenges_count = int(cfg.get("producer", "challenges_count"))
-    challenges_file_path = cfg.get("producer", "challenges_file_path")
+
+    commitments_count = int(cfg.get("producer", "commitments_count"))
+    commitments_file_path = cfg.get("producer", "commitments_file_path")
     producer_ip = cfg.get("producer", "producer_ip")
     port = int(cfg.get("producer", "port", 5000))
 
-    generate_challenge(challenges_count)
-    logger = logging.getLogger("producer_node")
-    # --- Threads ---
+    generate_challenge(commitments_count)
+
     listener_thread = threading.Thread(
         target=start_challenge_listener,
         daemon=True
@@ -187,5 +248,4 @@ if __name__ == "__main__":
     listener_thread.start()
     requester_thread.start()
 
-    # Keep main thread alive
     listener_thread.join()
