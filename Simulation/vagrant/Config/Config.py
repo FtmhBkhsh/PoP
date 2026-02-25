@@ -3,18 +3,18 @@ import json
 
 
 class Config:
-    def __init__(self, config_file="Config/config.json"):
+    def __init__(self, config_file="Config.json"):
         self.config_file = config_file
         self.default_config = {
-            "challenge_producer": {
-                "challenges_count": 3,
-                "challenges_file_path": "challenges.csv",
-                "challenge_producer_ip": "192.168.56.10",
+            "producer": {
+                "commitments_count": 3,
+                "commitments_file_path": "challenges.csv",
+                "producer_ip": "0.0.0.,0",
                 "port": 5000
             },
             "mine": {
-                "my_ip": "MineIP",
-                "port": 5000,
+                "my_ip": "0.0.0.0",
+                "port": 3000,
                 "debug": True,
                 "workers": 4
             },
