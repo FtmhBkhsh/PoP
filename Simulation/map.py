@@ -9,7 +9,7 @@ import psycopg2
 
 # ==== Node Settings ====
 DB_CONFIG = {
-    "host": "192.168.56.10",
+    "host": "0.0.0.0",
     "database": "mapperdb",
     "user": "vagrant",
     "password": "vagrant",

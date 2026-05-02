@@ -9,9 +9,9 @@ aggregated = defaultdict(list)
 @app.route("/reduce", methods=["POST"])
 def reduce_handler():
     data = request.json
-    key = "MinedBlock"
+    key = "key"
     aggregated[key].append(data)
-    print(f"[REDUCER] Received block #{data['index']} from {data['source']}")
+    print(f"[REDUCER] Received block #{data['key']} from {data['source']}")
     return jsonify({"status": "ok"})
 
 @app.route("/results", methods=["GET"])
