@@ -1,0 +1,28 @@
+{
+    "node_id": "map1",
+
+    "peers": [
+        "http://192.168.56.12:5000",
+        "http://192.168.56.13:5000",
+        "http://192.168.56.14:5000",
+        "http://192.168.56.15:5000"
+    ],
+
+    "listen_host": "0.0.0.0",
+    "listen_port": 5000,
+
+    "chain_file": "blockchain.json",
+    "difficulty": 10000000,
+
+    "data_files": ["data1.csv", "data2.csv", "data3.csv", "data4.csv", "data5.csv"],
+    "task_manager_file": "data1.csv",
+    "task_column": "answer",
+    "task_chunk_size": 50,
+    "genesis_rows_per_file": 5,
+
+    "logging": {
+        "level": "DEBUG",
+        "file": "logs/dpf.log",
+        "console": true
+    }
+}
