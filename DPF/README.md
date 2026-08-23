@@ -195,6 +195,20 @@ corrupt the file).
   (elapsed time × CPU frequency, plus a per-record constant) — a worker
   could in principle inflate this. Wiring in a real TEE attestation is
   the change needed to close that gap.
+ - **Task type**: the paper leaves the actual "useful work" payload
+  unspecified beyond `taskType`. For this implementation, a **Map-style
+  task** (à la MapReduce) was deliberately chosen as the unit of useful
+  work — each task is one row (or row range) of a CSV, and executing it
+  means running an independent, stateless map function
+  (`execute_task`'s word-count) over that row and emitting
+  `(word, 1)` pairs, with no reduce phase implemented. This fits the
+  framework well since map tasks are naturally chunkable
+  (`task_chunk_size`), independent of one another (any node can execute
+  any row without coordinating with others), and cheap to verify the
+  existence of after the fact — properties the PoUW election and the
+  task-manager/executor split both lean on. A different `taskType` with
+  a heavier or reduce-style payload would need its own dispatch logic in
+  `execute_task`.
 - **Result collection**: `Worker.send_result` currently only logs the
   mapper output locally. Per the paper, results should be routed to a
   collector endpoint referenced by the task's `srcURL` — that wiring
